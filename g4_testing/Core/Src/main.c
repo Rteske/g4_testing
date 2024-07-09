@@ -18,12 +18,17 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "example_basic_service.h"
+//#include "example_basic_service.h"
 //#include "example_detector_distance_with_iq_data_print.h"
+#include "example_bring_up.h"
+#include "usbd_cdc_if.h"
+
 #include "stdio.h"
+#include <stdlib.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -52,37 +57,12 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI1_Init(void);
 /* USER CODE BEGIN PFP */
-//extern uint8_t CDC_Transmit_FS(uint8_t *Buf, uint16_t Len);
-//
-//int _write(int file, char *ptr, int len) {
-//	(void) file;
-//	while (!(CDC_Transmit_FS((uint8_t*) ptr, len) == USBD_BUSY))
-//		;
-//	return len;
-//}
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-#include "acc_hal_integration_a121.h"
-bool hal_test_spi_read_chipid (void) {
-const uint32_t sensor = 1;
-const acc_hal_a121_t * hal = acc_hal_rss_integration_get_implementation() ;
-uint8_t bufer[6] = {0x30 , 0x0 , 0x0 , 0x0 , 0x0 , 0x0};
-acc_hal_integration_sensor_supply_on(sensor);
-acc_hal_integration_sensor_enable(sensor);
-hal -> transfer(sensor, bufer, sizeof(bufer));
-acc_hal_integration_sensor_disable(sensor);
-acc_hal_integration_sensor_supply_off(sensor);
-if (bufer[4] == 0x12 && bufer[5] == 0x10)
-{
-printf("Test OK !\n");
-return true;
-}
-printf("Cannot read chip id!\n");
-return false;
-}
+
 /* USER CODE END 0 */
 
 /**
@@ -114,8 +94,11 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_SPI1_Init();
+  MX_USB_Device_Init();
   /* USER CODE BEGIN 2 */
 
+
+  /* start of clients code **************************************/
 //  FDCAN_FilterTypeDef sFilterConfig;
 //
 //  sFilterConfig.IdType = FDCAN_STANDARD_ID;
@@ -124,7 +107,7 @@ int main(void)
 //  sFilterConfig.FilterConfig = FDCAN_FILTER_TO_RXFIFO0;
 //  sFilterConfig.FilterID1 = 0x22;
 //  sFilterConfig.FilterID2 = 0x22;
-////  sFilterConfig.RxBufferIndex = 0;
+//  sFilterConfig.RxBufferIndex = 0;
 //  if (HAL_FDCAN_ConfigFilter(&hfdcan1, &sFilterConfig) != HAL_OK)
 //  {
 //    /* Filter configuration Error */
@@ -154,32 +137,53 @@ int main(void)
 //  TxHeader1.FDFormat = FDCAN_FD_CAN;
 //  TxHeader1.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
 //  TxHeader1.MessageMarker = 0;
-////
 //
-
-
 //  hal_test_spi_read_chipid();
+  /* end of clients code ***********************************/
+
+
+  int ret = EXIT_SUCCESS;
+
+  // small delay to give time to start logic analyzer
+  HAL_Delay(5000);
+
+  // Run Board bringup tests.
+  // Board bringup tests ensure that the HW is functioning as expected.
+  // these tests are HW specific and test things like SPI Comms, interrupts,
+  // clock and voltage. Beware, although it "tests" clock and voltage, what it
+  // really means is that it tests against optimal values. The tests are SW
+  // initiated so the A121 has to start from a somewhat functioning state.
+  ret = acc_example_bring_up(0,NULL);
+
+  (void)ret;
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
 //  const char* res = "CONTINUE\r\n";
-  while (1)
-  {
+
+while (1) {
+
+
+	  /* start of clients code *****************************/
 //	  printf("SHIT");
 //	  hal_test_spi_read_chipid();
-	  acc_example_service(0, NULL);
+//	  acc_example_service(0, NULL);
 //	  acc_example_detector_distance_with_iq_data_print(0, NULL);
 //	  if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &TxHeader1, TxData1) != HAL_OK)
 //	  {
-//		char errorcode = hfdcan1.ErrorCode;
-////		transmit_string(errorcode);
-////	   Error_Handler();
-//  	  }
+//	  	  char errorcode = hfdcan1.ErrorCode;
+//	  	  transmit_string(errorcode);
+//	  	  Error_Handler();
+//    }
+	/* end of clients code *********************************/
+
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  HAL_Delay(1000);
   }
   /* USER CODE END 3 */
 }
@@ -200,8 +204,9 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI48|RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.HSI48State = RCC_HSI48_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV2;
@@ -252,7 +257,7 @@ static void MX_SPI1_Init(void)
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -316,6 +321,23 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+// Overwrite weak function used by printf().
+// Uses USB HAL. Enables logging output to host PC terminal
+// Use TeraTerm or PuTty and look for COM port in device manager
+int _write(int file, char *ptr, int len) {
+  static uint8_t rc = USBD_OK;
+
+  do {
+	  rc = CDC_Transmit_FS((uint8_t *)ptr, len);
+  } while (USBD_BUSY == rc);
+
+  if (USBD_FAIL == rc) {
+	  return 0;
+  }
+
+  return len;
+}
+
 /* USER CODE END 4 */
 
 /**
@@ -329,7 +351,7 @@ void Error_Handler(void)
 //  __disable_irq();
   while (1)
   {
-	  printf("AVBB");
+//	  printf("AVBB");
   }
   /* USER CODE END Error_Handler_Debug */
 }
