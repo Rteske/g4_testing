@@ -18,17 +18,17 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "cmsis_os.h"
 #include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-//#include "example_basic_service.h"
-//#include "example_detector_distance_with_iq_data_print.h"
 #include "example_bring_up.h"
 #include "usbd_cdc_if.h"
 
-#include "stdio.h"
+#include <stdio.h>
 #include <stdlib.h>
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -48,6 +48,14 @@
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi1;
 
+osThreadId defaultTask_BriHandle;
+uint32_t defaultTaskBuffer[ 256 ];
+osStaticThreadDef_t defaultTaskControlBlock;
+osThreadId Task_SPI_CommsHandle;
+uint32_t myTask02Buffer[ 256 ];
+osStaticThreadDef_t myTask02ControlBlock;
+osSemaphoreId sem_data_receivedHandle;
+osStaticSemaphoreDef_t sem_data_received_ControlBlock;
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -56,6 +64,9 @@ SPI_HandleTypeDef hspi1;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI1_Init(void);
+void StartDefaultTask_Bringup(void const * argument);
+void StartTask_SPI_Comms(void const * argument);
+
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -94,92 +105,69 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_SPI1_Init();
-  MX_USB_Device_Init();
   /* USER CODE BEGIN 2 */
 
-
-  /* start of clients code **************************************/
-//  FDCAN_FilterTypeDef sFilterConfig;
+  // uncomment below for bare-metal app (no FreeRTOS)
+//  int ret = EXIT_SUCCESS;
 //
-//  sFilterConfig.IdType = FDCAN_STANDARD_ID;
-//  sFilterConfig.FilterIndex = 0;
-//  sFilterConfig.FilterType = FDCAN_FILTER_MASK;
-//  sFilterConfig.FilterConfig = FDCAN_FILTER_TO_RXFIFO0;
-//  sFilterConfig.FilterID1 = 0x22;
-//  sFilterConfig.FilterID2 = 0x22;
-//  sFilterConfig.RxBufferIndex = 0;
-//  if (HAL_FDCAN_ConfigFilter(&hfdcan1, &sFilterConfig) != HAL_OK)
-//  {
-//    /* Filter configuration Error */
-//    Error_Handler();
-//  }
+//  // small delay to give time to start logic analyzer
+//  HAL_Delay(5000);
 //
-//  FDCAN_TxHeaderTypeDef   TxHeader1;
-//  uint8_t               TxData1[12] = "HELLOR";
+//  // Run Board bringup tests.
+//  // Board bringup tests ensure that the HW is functioning as expected.
+//  // these tests are HW specific and test things like SPI Comms, interrupts,
+//  // clock and voltage. Beware, although it "tests" clock and voltage, what it
+//  // really means is that it tests against optimal values. The tests are SW
+//  // initiated so the A121 has to start from a somewhat functioning state.
+//  ret = acc_example_bring_up(0,NULL);
 //
-//  if(HAL_FDCAN_Start(&hfdcan1)!= HAL_OK)
-//  {
-//   Error_Handler();
-//  }
-//
-//  if (HAL_FDCAN_ActivateNotification(&hfdcan1, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0) != HAL_OK)
-//  {
-//    /* Notification Error */
-//    Error_Handler();
-//  }
-//
-//  TxHeader1.Identifier = 0x11;
-//  TxHeader1.IdType = FDCAN_STANDARD_ID;
-//  TxHeader1.TxFrameType = FDCAN_DATA_FRAME;
-//  TxHeader1.DataLength = FDCAN_DLC_BYTES_12;
-//  TxHeader1.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
-//  TxHeader1.BitRateSwitch = FDCAN_BRS_OFF;
-//  TxHeader1.FDFormat = FDCAN_FD_CAN;
-//  TxHeader1.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
-//  TxHeader1.MessageMarker = 0;
-//
-//  hal_test_spi_read_chipid();
-  /* end of clients code ***********************************/
-
-
-  int ret = EXIT_SUCCESS;
-
-  // small delay to give time to start logic analyzer
-  HAL_Delay(5000);
-
-  // Run Board bringup tests.
-  // Board bringup tests ensure that the HW is functioning as expected.
-  // these tests are HW specific and test things like SPI Comms, interrupts,
-  // clock and voltage. Beware, although it "tests" clock and voltage, what it
-  // really means is that it tests against optimal values. The tests are SW
-  // initiated so the A121 has to start from a somewhat functioning state.
-  ret = acc_example_bring_up(0,NULL);
-
-  (void)ret;
+//  (void)ret;
 
   /* USER CODE END 2 */
+
+  /* USER CODE BEGIN RTOS_MUTEX */
+  /* add mutexes, ... */
+  /* USER CODE END RTOS_MUTEX */
+
+  /* Create the semaphores(s) */
+  /* definition and creation of sem_data_received */
+  osSemaphoreStaticDef(sem_data_received, &sem_data_received_ControlBlock);
+  sem_data_receivedHandle = osSemaphoreCreate(osSemaphore(sem_data_received), 1);
+
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* add semaphores, ... */
+  /* USER CODE END RTOS_SEMAPHORES */
+
+  /* USER CODE BEGIN RTOS_TIMERS */
+  /* start timers, add new ones, ... */
+  /* USER CODE END RTOS_TIMERS */
+
+  /* USER CODE BEGIN RTOS_QUEUES */
+  /* add queues, ... */
+  /* USER CODE END RTOS_QUEUES */
+
+  /* Create the thread(s) */
+  /* definition and creation of defaultTask_Bri */
+  osThreadStaticDef(defaultTask_Bri, StartDefaultTask_Bringup, osPriorityNormal, 0, 256, defaultTaskBuffer, &defaultTaskControlBlock);
+  defaultTask_BriHandle = osThreadCreate(osThread(defaultTask_Bri), NULL);
+
+  /* definition and creation of Task_SPI_Comms */
+  osThreadStaticDef(Task_SPI_Comms, StartTask_SPI_Comms, osPriorityNormal, 0, 256, myTask02Buffer, &myTask02ControlBlock);
+  Task_SPI_CommsHandle = osThreadCreate(osThread(Task_SPI_Comms), NULL);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+  /* add threads, ... */
+  /* USER CODE END RTOS_THREADS */
+
+  /* Start scheduler */
+  osKernelStart();
+
+  /* We should never get here as control is now taken by the scheduler */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-//  const char* res = "CONTINUE\r\n";
-
 while (1) {
-
-
-	  /* start of clients code *****************************/
-//	  printf("SHIT");
-//	  hal_test_spi_read_chipid();
-//	  acc_example_service(0, NULL);
-//	  acc_example_detector_distance_with_iq_data_print(0, NULL);
-//	  if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &TxHeader1, TxData1) != HAL_OK)
-//	  {
-//	  	  char errorcode = hfdcan1.ErrorCode;
-//	  	  transmit_string(errorcode);
-//	  	  Error_Handler();
-//    }
-	/* end of clients code *********************************/
-
 
     /* USER CODE END WHILE */
 
@@ -312,7 +300,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI4_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(EXTI4_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(EXTI4_IRQn);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
@@ -338,7 +326,74 @@ int _write(int file, char *ptr, int len) {
   return len;
 }
 
+// Overwrite weak function for A121 Interrupt Callback
+// Interrupt handler will call this Callback function
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+	UNUSED(GPIO_Pin);
+
+	// Release semaphore to indicate data is ready
+	osSemaphoreRelease(sem_data_receivedHandle);
+
+	return;
+}
+
 /* USER CODE END 4 */
+
+/* USER CODE BEGIN Header_StartDefaultTask_Bringup */
+/**
+  * @brief  Function implementing the defaultTask_Bri thread.
+  * @param  argument: Not used
+  * @retval None
+  */
+/* USER CODE END Header_StartDefaultTask_Bringup */
+void StartDefaultTask_Bringup(void const * argument)
+{
+  /* init code for USB_Device */
+  MX_USB_Device_Init();
+  /* USER CODE BEGIN 5 */
+
+  // small delay to give time to start logic analyzer
+  HAL_Delay(5000);
+
+  // Run Board bringup tests.
+  // Board bringup tests ensure that the HW is functioning as expected.
+  // these tests are HW specific and test things like SPI Comms, interrupts,
+  // clock and voltage. Beware, although it "tests" clock and voltage, what it
+  // really means is that it tests against optimal values. The tests are SW
+  // initiated so the A121 has to start from a somewhat functioning state.
+  acc_example_bring_up(0,NULL);
+
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END 5 */
+}
+
+/* USER CODE BEGIN Header_StartTask_SPI_Comms */
+/**
+* @brief Function implementing the Task_SPI_Comms thread.
+* 	Placeholder for final app. This task will service SPI communication.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartTask_SPI_Comms */
+void StartTask_SPI_Comms(void const * argument)
+{
+  /* USER CODE BEGIN StartTask_SPI_Comms */
+
+	// placeholder task for SPI Comms
+	// suspend for now until we get SPI working/pass Bringup tests
+	osThreadSuspend(osThreadGetId());
+
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END StartTask_SPI_Comms */
+}
 
 /**
   * @brief  This function is executed in case of error occurrence.
